@@ -213,7 +213,10 @@ rule run_vamb_vae:
         rsync -a out/* $(dirname {output.tsv})
         """
 
-# TODO: adjust mem based on #samples or better yet #contigs. With 22M contigs, vamb uses 150G.
+# done TODO: adjust mem based on #samples or better yet #contigs. With 22M contigs, vamb uses 150G.
+def get_mem_gb(wildcards, attempt):
+    return attempt * config['VAMB_memory']
+
 rule run_vamb_aae:
     input:
         contigs_file = lambda wildcards: expand("{wd}/{omics}/8-1-binning/scaffolds.{min_fasta_length}.fasta",
@@ -234,7 +237,7 @@ rule run_vamb_aae:
     log:
         "{wd}/logs/{omics}/mags_generation/run_vamb_aae.log"
     resources:
-        mem=config['VAMB_memory'],
+        mem=get_mem_gb,
         gpu=1 if vamb_gpu == "yes" else 0
     threads:
         4 if vamb_gpu == "yes" else config["VAMB_THREADS"]
