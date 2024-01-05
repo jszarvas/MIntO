@@ -60,6 +60,11 @@ METAFLYE_presets:
 # Binning preparation settings
 ###############################
 
+# Wether to also use SemiBin2
+SEMIBIN2_binning: no
+SEMIBIN2_memory: 40
+SEMIBIN2_threads: 20
+
 # Whether to use contigs or scaffolds from SPAdes
 SPADES_CONTIGS_OR_SCAFFOLDS: scaffolds
 

@@ -208,6 +208,11 @@ if 'COASSEMBLY' in config:
 else:
     print('WARNING in ', config_path, ': COASSEMBLY list of samples is empty. Skipping co-assembly.')
 
+# SemiBin2 binning option
+sb2_binning = False
+if 'SEMIBIN2_binning' in config and config['SEMIBIN2_binning']:
+    sb2_binning = True
+
 # Initialize some variables
 
 possible_assembly_types = ['illumina_single_nanopore', 'nanopore', 'illumina_coas', 'illumina_single']
@@ -259,6 +264,28 @@ if 'EXCLUDE_ASSEMBLY_TYPES' in config:
 
 # Define all the outputs needed by target 'all'
 
+def semibin2_training_data_output():
+    results = None
+    if sb2_binning:
+        data = expand("{wd}/{omics}/8-1-binning/training_{scaf_type}/combined.{min_length}.data.csv",
+                wd = working_dir,
+                omics = config['omics'],
+                min_length = config['MIN_FASTA_LENGTH'],
+                scaf_type = SCAFFOLDS_type)
+        results = data
+    return results 
+
+def semibin2_training_datasplit_output():
+    results = None
+    if sb2_binning:
+        split = expand("{wd}/{omics}/8-1-binning/training_{scaf_type}/combined.{min_length}.data_split.csv",
+                wd = working_dir,
+                omics = config['omics'],
+                min_length = config['MIN_FASTA_LENGTH'],
+                scaf_type = SCAFFOLDS_type)
+        results = split
+    return results 
+
 rule all:
     input:
         abundance = "{wd}/{omics}/8-1-binning/scaffolds.{min_seq_length}.abundance.npz".format(
@@ -267,7 +294,9 @@ rule all:
                 min_seq_length = config['MIN_FASTA_LENGTH']),
         config_yaml = "{wd}/{omics}/mags_generation.yaml".format(
                 wd = working_dir,
-                omics = config['omics'])
+                omics = config['omics']),
+        data = semibin2_training_data_output(),
+        data_split = semibin2_training_datasplit_output()
 
 ###############################################################################################
 # Filter contigs from
@@ -399,7 +428,8 @@ rule map_contigs_BWA_depth_coverM:
         fwd='{wd}/{omics}/6-corrected/{illumina}/{illumina}.1.fq.gz',
         rev='{wd}/{omics}/6-corrected/{illumina}/{illumina}.2.fq.gz'
     output:
-        depth="{wd}/{omics}/8-1-binning/depth_{scaf_type}/batch{batch}/{illumina}.{min_length}.depth.txt.gz"
+        depth="{wd}/{omics}/8-1-binning/depth_{scaf_type}/batch{batch}/{illumina}.{min_length}.depth.txt.gz",
+        bam=temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}/batch{batch}/{illumina}.{min_length}.bam")
     shadow:
         "minimal"
     params:
@@ -427,6 +457,7 @@ rule map_contigs_BWA_depth_coverM:
               coverm contig --methods metabat --trim-min 10 --trim-max 90 --min-read-percent-identity 95 --threads {params.coverm_threads} --output-file sorted.depth --bam-files {wildcards.illumina}.bam
               gzip sorted.depth
               rsync -a sorted.depth.gz {output.depth}
+              rsync -a {wildcards.illumina}.bam {output.bam}
              ) >& {log}
         """
 
@@ -674,6 +705,82 @@ rule make_abundance_npz:
         time (python {script_dir}/make_vamb_abundance_npz.py --fasta {input.contigs_file} --jgi {input.depth_file} --output {output.npz} --samples {ilmn_samples}) >& {log}
         """
 
+#####################################
+# Generate input data for SemiBin2 
+#####################################
+
+# Generate csv files for SemiBin2 in the single/co-assembly mode
+rule generate_input_data_for_batch:
+    input:
+        scaffolds="{wd}/{omics}/8-1-binning/scaffolds_{scaf_type}/batch{batch}.{min_length}.fasta",
+        bams = lambda wildcards: sorted(expand("{wd}/{omics}/8-1-binning/depth_{scaf_type}/batch{batch}/{illumina}.{min_length}.bam",
+                                            wd = wildcards.wd,
+                                            omics = wildcards.omics,
+                                            scaf_type = wildcards.scaf_type,
+                                            batch = wildcards.batch,
+                                            min_length = wildcards.min_length,
+                                            illumina=ilmn_samples))
+    output:
+        data="{wd}/{omics}/8-1-binning/training_{scaf_type}/batch{batch}.{min_length}/data.csv",
+        data_split="{wd}/{omics}/8-1-binning/training_{scaf_type}/batch{batch}.{min_length}/data_split.csv"
+    shadow:
+        "minimal"
+    log:
+        "{wd}/logs/{omics}/8-1-binning/training_{scaf_type}/batch{batch}.{min_length}.fetures.log"
+    resources:
+        mem = config['SEMIBIN2_memory']
+    threads:
+        config['SEMIBIN2_threads']
+    conda:
+        config["minto_dir"]+"/envs/SemiBin.yml" #SemiBin2
+    shell:
+        """
+        time ( SemiBin2 generate_sequence_features_single \
+            -i {input.scaffolds} \
+            -b {input.bams} \
+            -o shadow_outdir \
+            -t {threads}
+             ) >& {log}
+        """
+
+rule combine_input_data_batches:
+    input:
+        data = lambda wildcards: expand("{wd}/{omics}/8-1-binning/training_{scaf_type}/batch{batch}.{min_length}/data.csv",
+                                            wd = wildcards.wd,
+                                            omics = wildcards.omics,
+                                            scaf_type = wildcards.scaf_type,
+                                            batch = list(range(1, 1+batch_count[wildcards.scaf_type])),
+                                            min_length = wildcards.min_length),
+        data_split = lambda wildcards: expand("{wd}/{omics}/8-1-binning/training_{scaf_type}/batch{batch}.{min_length}/data_split.csv",
+                                            wd = wildcards.wd,
+                                            omics = wildcards.omics,
+                                            scaf_type = wildcards.scaf_type,
+                                            batch = list(range(1, 1+batch_count[wildcards.scaf_type])),
+                                            min_length = wildcards.min_length)                                            
+    output:
+        data="{wd}/{omics}/8-1-binning/training_{scaf_type}/combined.{min_length}.data.csv",
+        data_split="{wd}/{omics}/8-1-binning/training_{scaf_type}/combined.{min_length}.data_split.csv",
+    shadow:
+        "minimal"
+    params:
+        multi = lambda wildcards, input: "yes" if len(input.data) > 1 else "no"
+    resources:
+       mem = 10
+    threads:
+        1
+    shell:
+        """
+        if [ "{params.multi}" == "yes" ]; then
+            bash -c "cat {input.data[0]} | head -1" > $(basename {output.data})
+            (for file in {input.data}; do cat $file | tail -n +2; done) >> $(basename {output.data})
+            bash -c "cat {input.data_split[0]} | head -1" > $(basename {output.data_split})
+            (for file in {input.data_split}; do cat $file | tail -n +2; done) >> $(basename {output.data_split})
+        else
+            cp {input.data[0]}) $(basename {output.data})
+            cp {input.data_split[0]}) $(basename {output.data_split})
+        fi
+        """
+
 ###############################################################################################
 # Generate configuration yml file for recovery of MAGs and taxonomic annotation step - binning
 ###############################################################################################
@@ -722,6 +829,14 @@ VAMB_memory: 40
 # could be "yes" or "no"
 VAMB_GPU: no
 
+# Wether to also use SemiBin2
+# could be "yes" or "no"
+SEMIBIN2_binning: no
+SEMIBIN2_GPU: no
+
+# Assembly types for SemiBin2
+ASSEMBLY_TYPES:
+$(for i in {SCAFFOLDS_type}; do echo "- $i"; done)
 
 # CHECKM settings
 #
