@@ -32,21 +32,21 @@ include: 'include/config_parser.smk'
 
 # some variables
 
+binner_programs = ['avamb']
 if 'BINNERS' in config:
     if config['BINNERS'] is None:
         print('ERROR in ', config_path, ': BINNERS list is empty. "BINNERS" variable should be combinations of vae256, vae384, vae512, vae768, aaey and aaez. Please, complete ', config_path)
     else:
         try:
-            if 'BINNERS' in config:
-                #print("Samples:")
-                for bin in config["BINNERS"]:
-                    if bin in ('vae256', 'vae384', 'vae512', 'vae768', 'aaey', 'aaez'):
-                        pass
-                    else:
-                        raise TypeError('BINNERS variable is not correct. "BINNERS" variable should be combinations of vae256, vae384, vae512, vae768, aaey and aaez. Please, complete ', config_path)
+            for binner in config["BINNERS"]:
+                if binner in ('vae256', 'vae384', 'vae512', 'vae768', 'aaey', 'aaez'):
+                    pass
+                else:
+                    raise TypeError('BINNERS variable is not correct. "BINNERS" variable should be combinations of vae256, vae384, vae512, vae768, aaey and aaez. Please, complete ', config_path)
         except:
             print('ERROR in ', config_path, ': BINNERS variable is not correct. "BINNERS" variable should be combinations of vae256, vae384, vae512, vae768, aaey and aaez.')
 else:
+    binner_programs = []
     print('ERROR in ', config_path, ': BINNERS list is empty. "BINNERS" variable should be combinations of vae256, vae384, vae512, vae768, aaey and aaez. Please, complete', config_path)
 
 
@@ -80,6 +80,22 @@ if config['MIN_MAG_LENGTH'] is None:
     print('ERROR in ', config_path, ': MIN_MAG_LENGTH variable is empty. Please, complete ', config_path)
 elif type(config['MIN_MAG_LENGTH']) != int:
     print('ERROR in ', config_path, ': MIN_MAG_LENGTH variable is not an integer. Please, complete ', config_path)
+
+# SemiBin2 binning option
+if 'SEMIBIN2_binning' in config and config['SEMIBIN2_binning']:
+    binner_programs.append('semibin')
+
+sb2_gpu = False
+if 'SEMIBIN2_GPU' in config and config['SEMIBIN2_GPU']:
+    sb2_gpu = True
+
+SCAFFOLDS_type = list()
+if 'ASSEMBLY_TYPES' in config and config['ASSEMBLY_TYPES'] is not None:
+    for assembly_type in config['ASSEMBLY_TYPES']:
+        if assembly_type != "nanopore":
+            SCAFFOLDS_type.append(assembly_type)
+        else:
+            print('WARNING in ', config_path, ': long-read only assembly binning is not yet supported. Skipping binning with SemiBin2.')
 
 if config['CHECKM_COMPLETENESS'] is None:
     print('ERROR in ', config_path, ': CHECKM_COMPLETENESS variable is empty. Please, complete ', config_path)
@@ -318,15 +334,146 @@ rule make_avamb_mags:
             ) &> {log}
         """
 
+#####################################
+# Train and bin with SemiBin2 
+#####################################
+
+# Train model for each assembly type
+rule train_model_for_assembly_type:
+    input:
+        data=lambda wildcards: "{wd}/{omics}/8-1-binning/training_{scaf_type}/combined.{min_fasta_length}.data.csv".format(
+                                            wd = wildcards.wd,
+                                            omics = wildcards.omics,
+                                            scaf_type = wildcards.scaf_type,
+                                            min_fasta_length = config['MIN_FASTA_LENGTH']),
+        data_split=lambda wildcards: "{wd}/{omics}/8-1-binning/training_{scaf_type}/combined.{min_fasta_length}.data_split.csv".format(
+                                            wd = wildcards.wd,
+                                            omics = wildcards.omics,
+                                            scaf_type = wildcards.scaf_type,
+                                            min_fasta_length = config['MIN_FASTA_LENGTH'])
+    output:
+        model="{wd}/{omics}/8-1-binning/training_{scaf_type}/combined.{min_fasta_length}/model.h5"
+    log:
+        "{wd}/logs/{omics}/8-1-binning/training_{scaf_type}/combined.{min_fasta_length}.model.log"
+    resources:
+        mem = config['VAMB_memory'],
+        gpu=1 if sb2_gpu else 0
+    threads:
+        config['VAMB_THREADS']
+    params:
+        engine = "GPU" if sb2_gpu else "CPU"
+    conda:
+        config["minto_dir"]+"/envs/SemiBin.yml" #SemiBin2
+    shell:
+        """
+        time ( SemiBin2 train_self \
+            --data {input.data} \
+            --data-split {input.data_split} \
+            -o $(dirname {output.model}) \
+            -t {threads} \
+            --engine {params.engine} \
+             ) >& {log}
+        """
+
+# Bin each assembly type with model
+rule apply_model_for_assembly_type:
+    input:
+        scaffolds=lambda wildcards: "{wd}/{omics}/8-1-binning/scaffolds_{scaf_type}/combined.{min_fasta_length}.fasta".format(
+                                            wd = wildcards.wd,
+                                            omics = wildcards.omics,
+                                            scaf_type = wildcards.scaf_type,
+                                            min_fasta_length = config['MIN_FASTA_LENGTH']),
+        data=lambda wildcards: "{wd}/{omics}/8-1-binning/training_{scaf_type}/combined.{min_fasta_length}.data.csv".format(
+                                            wd = wildcards.wd,
+                                            omics = wildcards.omics,
+                                            scaf_type = wildcards.scaf_type,
+                                            min_fasta_length = config['MIN_FASTA_LENGTH']),
+        model=lambda wildcards: "{wd}/{omics}/8-1-binning/training_{scaf_type}/combined.{min_fasta_length}/model.h5".format(
+                                            wd = wildcards.wd,
+                                            omics = wildcards.omics,
+                                            scaf_type = wildcards.scaf_type,
+                                            min_fasta_length = config['MIN_FASTA_LENGTH'])
+    output:
+        bins="{wd}/{omics}/8-1-binning/mags_generation_pipeline/semibin/semibin_{scaf_type}/contig_bins.tsv"
+    log:
+        "{wd}/logs/{omics}/8-1-binning/training_{scaf_type}/combined.binning.log"
+    resources:
+        mem = config['VAMB_memory'],
+        gpu=1 if sb2_gpu else 0
+    threads:
+        config['VAMB_THREADS']
+    params:
+        engine = "GPU" if sb2_gpu else "CPU",
+        max_edges = 500
+    conda:
+        config["minto_dir"]+"/envs/SemiBin.yml" #SemiBin2
+    shell:
+        """
+        time ( SemiBin2 bin_short \
+            --input-fasta {input.scaffolds} \
+            --data {input.data} \
+            --model {input.model} \
+            -o $(dirname {output.bins}) \
+            --no-recluster \
+            --max-edges {params.max_edges} \
+            -t {threads} \
+            --engine {params.engine} \
+             ) >& {log}
+        """
+
+### Select MAGs that satisfy min_mag_length criterion
+# also compatible with semibin2
+rule make_semibin_mags:
+    input:
+        tsv="{wd}/{omics}/8-1-binning/mags_generation_pipeline/semibin/semibin_{scaf_type}/contig_bins.tsv",
+        scaffolds_file = lambda wildcards: "{wd}/{omics}/8-1-binning/scaffolds_{scaf_type}/combined.{min_fasta_length}.fasta".format(
+                                            wd = wildcards.wd,
+                                            omics = wildcards.omics,
+                                            scaf_type = wildcards.scaf_type,
+                                            min_fasta_length = config['MIN_FASTA_LENGTH'])
+    output:
+        discarded_genomes = "{wd}/{omics}/8-1-binning/mags_generation_pipeline/semibin/semibin_{scaf_type}/semibin_{scaf_type}_discarded_genomes.txt",
+        bin_folder = directory("{wd}/{omics}/8-1-binning/mags_generation_pipeline/semibin/semibin_{scaf_type}/bins"),
+    params:
+        min_mag_length = config["MIN_MAG_LENGTH"],
+        binsplit_char = config["BINSPLIT_CHAR"],
+        binner = lambda wildcards: "semibin_{}".format(wildcards.scaf_type)
+    log:
+        "{wd}/logs/{omics}/mags_generation/semibin2_{scaf_type}.take_all_genomes_for_each_run.log"
+    resources:
+        mem=10
+    threads:
+        2 # Decide number of threads
+    conda:
+        config["minto_dir"]+"/envs/mags.yml"
+    shell:
+        """
+        time (\
+                mkdir -p {output.bin_folder}
+                python {script_dir}/take_all_genomes.py \
+                    --vamb_cluster_tsv {input.tsv} \
+                    --binsplit_char {params.binsplit_char} \
+                    --contigs_file {input.scaffolds_file} \
+                    --assembly_method_name {params.binner} \
+                    --min_fasta_length {params.min_mag_length} \
+                    --output_folder {output.bin_folder} \
+                    --discarded_genomes_info {output.discarded_genomes}
+            ) &> {log}
+        """
+
 ###############################
 # Prepare batches for checkM
 ###############################
 
 checkpoint prepare_bins_for_checkm:
     input:
-        bin_folder = rules.make_avamb_mags.output.bin_folder
+        bin_folder = lambda wildcards: "{wd}/{omics}/8-1-binning/mags_generation_pipeline/{binner_software}/{binner_subcat}/bins".format(
+                                            wd = wildcards.wd,
+                                            omics = wildcards.omics,
+                                            binner_software = wildcards.binner_software,
+                                            binner_subcat = wildcards.binner_subcat)
     output:
-        checkm_groups = directory("{wd}/{omics}/8-1-binning/mags_generation_pipeline/avamb/{binner}/checkm")
+        checkm_groups = directory("{wd}/{omics}/8-1-binning/mags_generation_pipeline/{binner_software}/{binner_subcat}/checkm")
     params:
         batch_size = checkm_batch_size
     shell:
@@ -347,10 +494,11 @@ checkpoint prepare_bins_for_checkm:
 def get_checkm_output_for_batches(wildcards):
     #Collect the genome bins from previous step
     checkpoint_output = checkpoints.prepare_bins_for_checkm.get(**wildcards).output[0]
-    result = expand("{wd}/{omics}/8-1-binning/mags_generation_pipeline/avamb/{binner}/checkm/{batch}.out/quality_report.tsv",
+    result = expand("{wd}/{omics}/8-1-binning/mags_generation_pipeline/{binner_software}/{binner_subcat}/checkm/{batch}.out/quality_report.tsv",
                     wd=wildcards.wd,
-                    binner=wildcards.binner,
                     omics=wildcards.omics,
+                    binner_software=wildcards.binner_software,
+                    binner_subcat=wildcards.binner_subcat,
                     batch=glob_wildcards(os.path.join(checkpoint_output, 'batch.{batch}')).batch)
     return(result)
 
@@ -392,9 +540,9 @@ rule merge_checkm_batches:
     input:
         get_checkm_output_for_batches
     output:
-        binner_combined = "{wd}/{omics}/8-1-binning/mags_generation_pipeline/avamb/{binner}/{binner}.checkM.txt"
+        binner_combined = "{wd}/{omics}/8-1-binning/mags_generation_pipeline/{binner_software}/{binner_subcat}/{binner_subcat}.checkM.txt"
     log:
-        "{wd}/logs/{omics}/mags_generation/{binner}.checkM.merge.log"
+        "{wd}/logs/{omics}/mags_generation/{binner_software}/{binner_subcat}.checkM.merge.log"
     resources:
         mem=10
     threads:
@@ -420,14 +568,29 @@ rule merge_checkm_batches:
 # Use of readarray was inspired by: https://stackoverflow.com/a/41268405
 ########################
 
+def get_binner_combinations(wildcards):
+    checkm_inputs = []
+    if 'avamb' in binner_programs:
+        for binner in config['BINNERS']:
+            checkm_inputs.append("{wd}/{omics}/8-1-binning/mags_generation_pipeline/{binner_software}/{binner_subcat}/{binner_subcat}.checkM.txt".format(
+                                wd = wildcards.wd,
+                                omics = wildcards.omics,
+                                binner_software = 'avamb',
+                                binner_subcat = binner))
+    if 'semibin' in binner_programs:
+        for scaffold_type in SCAFFOLDS_type:
+            checkm_inputs.append("{wd}/{omics}/8-1-binning/mags_generation_pipeline/{binner_software}/{binner_subcat}/{binner_subcat}.checkM.txt".format(
+                                wd = wildcards.wd,
+                                omics = wildcards.omics,
+                                binner_software = 'semibin',
+                                binner_subcat = "semibin_{}".format(scaffold_type)))
+    return checkm_inputs
+
 rule collect_genomes_from_all_binners:
     input:
-        checkm_out = lambda wildcards: expand("{wd}/{omics}/8-1-binning/mags_generation_pipeline/avamb/{binner}/{binner}.checkM.txt",
-                                wd = wildcards.wd,
-                                omics=wildcards.omics,
-                                binner = config['BINNERS'])
+        checkm_out = get_binner_combinations
     output:
-        all_genomes = directory("{wd}/{omics}/8-1-binning/mags_generation_pipeline/avamb/all"),
+        all_genomes = directory("{wd}/{omics}/8-1-binning/mags_generation_pipeline/MAGS/all"),
         collected = "{wd}/{omics}/8-1-binning/mags_generation_pipeline/collect_genomes.done"
     log:
         collected = "{wd}/logs/{omics}/mags_generation/collect_genomes.log"
@@ -456,10 +619,7 @@ rule collect_genomes_from_all_binners:
 
 rule make_comprehensive_table:
     input:
-        lambda wildcards: expand("{wd}/{omics}/8-1-binning/mags_generation_pipeline/avamb/{binner}/{binner}.checkM.txt",
-                                wd = wildcards.wd,
-                                omics=wildcards.omics,
-                                binner = config['BINNERS'])
+        get_binner_combinations
     output:
         checkm_total = "{wd}/{omics}/8-1-binning/mags_generation_pipeline/checkm/checkm-comprehensive.tsv"
     log:
@@ -488,7 +648,7 @@ rule collect_HQ_genomes:
         HQ_table="{wd}/{omics}/8-1-binning/mags_generation_pipeline/HQ_genomes_checkm.tsv",
         HQ_folder=directory("{wd}/{omics}/8-1-binning/mags_generation_pipeline/HQ_genomes")
     params:
-        all_genomes_folder = "{wd}/{omics}/8-1-binning/mags_generation_pipeline/avamb/all/",
+        all_genomes_folder = "{wd}/{omics}/8-1-binning/mags_generation_pipeline/MAGS/all/",
         completeness = config["CHECKM_COMPLETENESS"],
         contamination = config["CHECKM_CONTAMINATION"]
     log:

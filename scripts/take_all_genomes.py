@@ -21,7 +21,6 @@ from itertools import groupby
 import math
 import pandas as pd
 import time
-import yaml
 from Bio.SeqRecord import SeqRecord
 
 def read_params():
@@ -39,7 +38,7 @@ def read_params():
 		)
 
 	p.add_argument("--assembly_method_name", 
-		help = "the assembly method used (aaey, aaez, vamb384, vamb512",
+		help = "the binning method used (aaey, aaez, vamb384, semibin)",
 		default= "")
 
 	p.add_argument("--contigs_file", 
@@ -49,7 +48,7 @@ def read_params():
 		help = "where to copy the genomes ")
 
 	p.add_argument("--min_fasta_length", 
-		help = "Minimum threshold for the fasta length", 
+		help = "Minimum threshold for the mag fasta length", 
 		default = 500000 )
 
 	p.add_argument("--discarded_genomes_info", 
@@ -81,7 +80,15 @@ for record in fasta_sequences:
 		dictionary_of_contigs_length[contigs_name] = sequence
 	
 # open the cluster.tsv table
-cluster_tsv = pd.read_csv(cluster_tsv, sep = "\t", names = ["bin", "contig"])
+header_present = False
+with open(cluster_tsv, "r") as fp:
+	firstline = fp.readline()
+	if "bin" in firstline.strip().split("\t"):
+		header_present = True
+if not header_present:
+	cluster_tsv = pd.read_csv(cluster_tsv, sep = "\t", names = ["bin", "contig"])
+else:
+	cluster_tsv = pd.read_csv(cluster_tsv, sep = "\t")
 
 # create a dictionary with bin as a key and the nodes as key, only if the sum of the scaffold are >MIN_FASTA_LENGTH
 bins_dictionary = {}

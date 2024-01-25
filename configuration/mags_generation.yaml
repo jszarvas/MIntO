@@ -30,6 +30,14 @@ VAMB_memory: 40
 # could be yes or no
 VAMB_GPU: no
 
+# Wether to also use SemiBin2
+# could be "yes" or "no"
+SEMIBIN2_binning: no
+SEMIBIN2_GPU: no
+
+# Assembly types for SemiBin2
+ASSEMBLY_TYPES:
+- 
 
 # CHECKM settings
 #
