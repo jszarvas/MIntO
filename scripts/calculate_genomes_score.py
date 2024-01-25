@@ -158,7 +158,7 @@ def calculate_fasta_statistics_checkm_based(fasta_file):
 	shortest_contig_name = ""
 	shortest_contig_size = len(list(SeqIO.parse(fasta_file, "fasta"))[0]) # taking the first contig for reference
 
-	N_statistics_L_statistics_calculation = [] # list of length of contigs
+	gc_content_total = 0
 
 	# defining sequences with length > 1,000,000 and 2,000,000 for calculating the score 
 	seq_1M = 0
@@ -171,8 +171,6 @@ def calculate_fasta_statistics_checkm_based(fasta_file):
 			contigs = contigs + 1
 			id = record.id
 
-			gc_content_total = 0
-
 			seq = record.seq
 			seq_len = len(record.seq)
 			length_of_contigs.append(seq_len)
@@ -183,10 +181,6 @@ def calculate_fasta_statistics_checkm_based(fasta_file):
 				seq_1M = seq_1M + 1
 			if seq_len > 2000000: 
 				seq_2M = seq_2M + 1
-			
-
-			# adding the contig length in the N and L 
-			N_statistics_L_statistics_calculation.append(seq_len)
 
 			# updating the longest contig
 			if seq_len >= longest_contig_size: 
@@ -208,7 +202,7 @@ def calculate_fasta_statistics_checkm_based(fasta_file):
 		"N90" : 0 }
 
 	for stat in [50, 75, 90]:
-		statistics = calculate_N_L_statistics(N_statistics_L_statistics_calculation, threshold=stat)
+		statistics = calculate_N_L_statistics(length_of_contigs, threshold=stat)
 		statistics_dictionary["N{}".format(stat)] = statistics[0]
 		statistics_dictionary["L{}".format(stat)] = statistics[1]
 
@@ -271,8 +265,6 @@ def calculate_fasta_statistics_genome_based(fasta_file, circularity_threshold = 
 	contigs = 0
 	length_of_contigs = [] # useful to calculate entropy later 
 
-
-	
 	gc_content_total = 0 # this should be divided by the total
 
 	# gaps information
@@ -288,8 +280,6 @@ def calculate_fasta_statistics_genome_based(fasta_file, circularity_threshold = 
 	longest_contig_size = 0
 	shortest_contig_name = ""
 	shortest_contig_size = len(list(SeqIO.parse(fasta_file, "fasta"))[0]) # taking the first contig for reference
-
-	N_statistics_L_statistics_calculation = [] # list of length of contigs
 
 	# defining sequences with length > 1,000,000 and 2,000,000 for calculating the score 
 	seq_1M = 0
@@ -322,10 +312,6 @@ def calculate_fasta_statistics_genome_based(fasta_file, circularity_threshold = 
 			if seq_len > 2000000: 
 				seq_2M = seq_2M + 1
 			
-
-			# adding the contig length in the N and L 
-			N_statistics_L_statistics_calculation.append(seq_len)
-
 			# updating the longest contig
 			if seq_len >= longest_contig_size: 
 				longest_contig_name = id
@@ -354,7 +340,7 @@ def calculate_fasta_statistics_genome_based(fasta_file, circularity_threshold = 
 		"N90" : 0 }
 
 	for stat in [50, 75, 90]:
-		statistics = calculate_N_L_statistics(N_statistics_L_statistics_calculation, threshold=stat)
+		statistics = calculate_N_L_statistics(length_of_contigs, threshold=stat)
 		statistics_dictionary["N{}".format(stat)] = statistics[0]
 		statistics_dictionary["L{}".format(stat)] = statistics[1]
 
@@ -484,7 +470,7 @@ if score_method == "checkm":
 	# open the output file
 	with open(output_file, "w") as fh:
 		fh.write("#--score_method {}\n".format(score_method))
-		fh.write("Bin_id\tScore\tSeq_score\tQual_score\tCompleteness\tContamination\tContigs\tBases\tGC\tL50\tL75\tL90\tN50_bp\tN75_bp\tN90_bp\tLongest_bp\tShortest_bp\tStrain_heterogeneity\tseq_1M\tseq_2M\n")
+		fh.write("Bin_id\tScore\tSeq_score\tQual_score\tCompleteness\tContamination\tContigs\tBases\tGC\tL50\tL75\tL90\tN50_bp\tN75_bp\tN90_bp\tLongest_bp\tShortest_bp\tseq_1M\tseq_2M\n")
 	
 		# calculate the statistics 
 		for file in folder_fasta_file:
@@ -543,7 +529,7 @@ elif score_method == "genome":
 	# open the output file
 	with open(output_file, "w") as fh:
 		fh.write("#--score_method {}\n".format(score_method))
-		fh.write("Bin_id\tScore\tSeqScore\tQualScore\tCompleteness\tContamination\tContigs\tBases\tGC\tL50\tL75\tL90\tN50_bp\tN75_bp\tN90_bp\tLongest_bp\tShortest_bp\tGaps\tGapLengths\tCircularContigs\tCircularFraction\tCircular\tConsideredCircular\tStrain_heterogeneity\tseq_1M\tseq_2M\n")
+		fh.write("Bin_id\tScore\tSeqScore\tQualScore\tCompleteness\tContamination\tContigs\tBases\tGC\tL50\tL75\tL90\tN50_bp\tN75_bp\tN90_bp\tLongest_bp\tShortest_bp\tGaps\tGapLengths\tCircularContigs\tCircularFraction\tCircular\tConsideredCircular\tseq_1M\tseq_2M\n")
 	
 		# calculate the statistics 
 		for file in folder_fasta_file:
