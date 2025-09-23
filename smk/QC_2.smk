@@ -504,6 +504,7 @@ __EOM__
 ###############################################################################################
 
 rule minlength_readcounts:
+    localrule: True
     input:
         trim_summary=lambda wildcards: expand("{wd}/{omics}/3-minlength/{sample}/{run}.trim.summary",
                 wd     = wildcards.wd,
@@ -547,6 +548,7 @@ rule postcleaning_readcounts:
         """
 
 rule aggregate_readcounts:
+    localrule: True
     input:
         minlen_rc=expand("{wd}/output/2-qc/{omics}.{sample}.1.minlength.txt",
             wd = working_dir,

@@ -42,6 +42,7 @@ GLOBAL_CONFIG_KEYTYPES = {
     'FASTP_front_mean_qual' : int,
     'FASTP_memory' : int,
     'FASTP_min_length' : int,
+    'FASTP_trim_polyG' : bool,
     'FASTP_tail_mean_qual' : int,
     'FASTP_threads' : int,
     'GTDB_TAXONOMY_VERSION' : str,

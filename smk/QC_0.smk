@@ -36,6 +36,7 @@ FASTP_memory         = validate_required_key(config, 'FASTP_memory')
 FASTP_min_length     = validate_required_key(config, 'FASTP_min_length')
 FASTP_front_mean_qual= validate_required_key(config, 'FASTP_front_mean_qual')
 FASTP_tail_mean_qual = validate_required_key(config, 'FASTP_tail_mean_qual')
+FASTP_trim_polyG     = validate_required_key(config, 'FASTP_trim_polyG')
 
 FASTP_adapters       = validate_required_key(config, 'FASTP_adapters')
 if not os.path.exists(FASTP_adapters):
@@ -52,29 +53,62 @@ def sampleid_valid_check(sampleid):
     else:
         return(True)
 
-def sample_existence_check(top_raw_dir, sample_id, organisation_type = "folder"):
-    if organisation_type == "folder":
+def sample_existence_check(top_raw_dir, sample_id, organisation_type = "folder_under_rawdir"):
+    if organisation_type == "folder_under_rawdir":
         location = "{}/{}".format(top_raw_dir, sample_id)
         if os.path.exists(location):
             if glob.glob("{}/{}/*[.-_]{}".format(top_raw_dir, sample_id, ilmn_suffix[0])):
                 return(True)
-    else:
+    elif organisation_type == "file_under_rawdir":
         sample_pattern = "{}/{}[.-_]{}".format(top_raw_dir, sample_id, ilmn_suffix[0])
         if glob.glob(sample_pattern):
             return(True)
+    else:
+        raise Exception(f"ERROR: organization_type={organization_type} is not valid!")
     return(False)
+
+# Make dict() from two lists
+
+def make_dict(keys, values):
+    # Check equal length
+    if len(keys) != len(values):
+        raise ValueError("Keys and values must have the same length")
+
+    # Check duplicates in keys
+    if len(set(keys)) != len(keys):
+        raise ValueError("Duplicate keys found")
+
+    # Check duplicates in values
+    if len(set(values)) != len(values):
+        raise ValueError("Duplicate values found")
+
+    return dict(zip(keys, values))
 
 # Make list of illumina samples, if ILLUMINA in config
 ilmn_samples = list()
-ilmn_samples_organisation = "folder"
+ilmn_samples_organisation = None
 ilmn_runs_df = None
+sample2folder = dict()
+
 if (x := validate_required_key(config, 'ILLUMINA')):
+
+    # listed samples
+    if isinstance(x, list):
+        ilmn_samples_organisation = "folder_under_rawdir"
+        for sampleid in x:
+            if sampleid_valid_check(sampleid):
+                if sample_existence_check(raw_dir, sampleid, ilmn_samples_organisation):
+                    ilmn_samples.append(sampleid)
+                    sample2folder[sampleid] = sampleid
+                else:
+                    raise Exception(f"ERROR: {sampleid} is not found under {raw_dir} with suffix {ilmn_suffix[0]}.")
+
     # runs-sheet or column_name specified option
-    if isinstance(x, str):
-        ilmn_samples_organisation = "bulk"
+    elif isinstance(x, str):
         if os.path.exists(x) and os.path.isfile(x):
             # extra runs sheet
             print(f"MIntO uses {x} as sample list")
+            ilmn_samples_organisation = "file_under_rawdir"
             col_name = "sample"
             ilmn_runs_df = pandas.read_table(x)
             for sampleid in ilmn_runs_df['sample'].unique():
@@ -84,31 +118,36 @@ if (x := validate_required_key(config, 'ILLUMINA')):
                         if sample_existence_check(raw_dir, runid, ilmn_samples_organisation):
                             if sampleid not in ilmn_samples:
                                 ilmn_samples.append(sampleid)
+                                sample2folder[sampleid] = sampleid
                         else:
                             raise Exception(f"ERROR: {runid} not in bulk data folder {raw_dir}")
         else:
             # column name in metadata sheet
             col_name = x
             md_df = pandas.read_table(metadata)
+
+            # Check 'sample' and col_name columns
+            if 'sample' not in md_df.columns:
+                raise Exception(f"ERROR in {config_path}: 'sample' column does not exist in metadata or runs sheet. Please fix!")
             if not col_name in md_df.columns:
                 raise Exception(f"ERROR in {config_path}: column name specified for ILLUMINA does not exist in metadata or runs sheet. Please fix!")
-            sampleid_list = md_df[col_name].to_list()
-            if sample_existence_check(raw_dir, sampleid_list[0]):
-                ilmn_samples_organisation = "folder"
-            for sampleid in sampleid_list:
+
+            sample_list = md_df['sample'].to_list()
+            folder_list = md_df[col_name].to_list()
+            sample2folder = make_dict(sample_list, folder_list)
+
+            # Determine sample organization mode
+            if sample_existence_check(raw_dir, folder_list[0], "folder_under_rawdir"):
+                ilmn_samples_organisation = "folder_under_rawdir"
+            else:
+                ilmn_samples_organisation = "file_under_rawdir"
+
+            for sampleid in sample_list:
                 if sampleid_valid_check(sampleid):
-                    if sample_existence_check(raw_dir, sampleid, ilmn_samples_organisation) and sampleid not in ilmn_samples:
+                    if sample_existence_check(raw_dir, sample2folder[sampleid], ilmn_samples_organisation) and sampleid not in ilmn_samples:
                         ilmn_samples.append(sampleid)
                     else:
                         raise Exception(f"ERROR: {sampleid} not in raw data folder {raw_dir} with suffix {ilmn_suffix[0]}")
-    # listed samples
-    else:
-        for sampleid in x:
-            if sampleid_valid_check(sampleid):
-                if sample_existence_check(raw_dir, sampleid):
-                    ilmn_samples.append(sampleid)
-                else:
-                    raise Exception(f"ERROR: {sampleid} is not found under {raw_dir} with suffix {ilmn_suffix[0]}.")
 
 # trimming options
 adapter_trimming_args = ""
@@ -157,8 +196,8 @@ rule all:
 
 def get_runs_for_sample(sample):
     runs = [sample]
-    if ilmn_samples_organisation == "folder":
-        sample_dir = '{raw_dir}/{sample}'.format(raw_dir=raw_dir, sample=sample)
+    if ilmn_samples_organisation == "folder_under_rawdir":
+        sample_dir = '{raw_dir}/{subdir}'.format(raw_dir=raw_dir, subdir=sample2folder[sample])
         runs = [ f.name.split(ilmn_suffix[0])[0][:-1] for f in os.scandir(sample_dir) if f.is_file() and f.name.endswith(ilmn_suffix[0]) ]
     elif ilmn_runs_df is not None:
         runs = ilmn_runs_df.loc[ilmn_runs_df['sample'] == sample]['run'].to_list()
@@ -168,8 +207,8 @@ def get_runs_for_sample(sample):
 
 def get_raw_reads_for_sample_run(wildcards):
     prefix = '{raw_dir}/{run}'.format(raw_dir=raw_dir, run=wildcards.run)
-    if ilmn_samples_organisation == "folder":
-        prefix = '{raw_dir}/{sample}/{run}'.format(raw_dir=raw_dir, sample=wildcards.sample, run=wildcards.run)
+    if ilmn_samples_organisation == "folder_under_rawdir":
+        prefix = '{raw_dir}/{subdir}/{run}'.format(raw_dir=raw_dir, subdir=sample2folder[wildcards.sample], run=wildcards.run)
     raw_sample_run = {}
     for i, k in enumerate(['read_fw', 'read_rv']):
         raw_sample_run[k] = glob.glob("{}[.-_]{}".format(prefix, ilmn_suffix[i]))[0]
@@ -242,6 +281,7 @@ elif adapter_trimming_args:
             mq_5=FASTP_front_mean_qual,
             mq_3=FASTP_tail_mean_qual,
             ml=FASTP_min_length,
+            polyG="--trim_poly_g" if FASTP_trim_polyG else "",
             adapter_args=adapter_trimming_args
         log:
             "{wd}/logs/{omics}/1-trimmed/{sample}_{run}_qc0_trim_quality.log"
@@ -259,6 +299,7 @@ elif adapter_trimming_args:
                 --cut_window_size 4 --cut_front --cut_front_mean_quality {params.mq_5} --cut_tail --cut_tail_mean_quality {params.mq_3} --length_required {params.ml} \
                 {params.adapter_args} \
                 --dont_eval_duplication \
+                {params.polyG} \
                 --thread {threads} --json {output.json} --html {output.html}
             ) >& {log}
             """
@@ -276,6 +317,7 @@ else:
             mq_5=FASTP_front_mean_qual,
             mq_3=FASTP_tail_mean_qual,
             ml=FASTP_min_length,
+            polyG="--trim_poly_g" if FASTP_trim_polyG else "",
             adapter=FASTP_adapters
         log:
             "{wd}/logs/{omics}/1-trimmed/{sample}_{run}_qc0_trim_customadapter.log"
@@ -292,6 +334,7 @@ else:
                 -o {output.pairead1} --out2 {output.pairead2} \
                 --cut_window_size 4 --cut_front --cut_front_mean_quality {params.mq_5} --cut_tail --cut_tail_mean_quality {params.mq_3} --length_required {params.ml} \
                 --dont_eval_duplication \
+                {params.polyG} \
                 --adapter_fasta {params.adapter} \
                 --thread {threads} --json {output.json}
             ) >& {log}
