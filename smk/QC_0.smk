@@ -66,6 +66,23 @@ def sample_existence_check(top_raw_dir, sample_id, organisation_type = "folder_u
         raise Exception(f"ERROR: organization_type={organization_type} is not valid!")
     return(False)
 
+# Make dict() from two lists
+
+def make_dict(keys, values):
+    # Check equal length
+    if len(keys) != len(values):
+        raise ValueError("Keys and values must have the same length")
+
+    # Check duplicates in keys
+    if len(set(keys)) != len(keys):
+        raise ValueError("Duplicate keys found")
+
+    # Check duplicates in values
+    if len(set(values)) != len(values):
+        raise ValueError("Duplicate values found")
+
+    return dict(zip(keys, values))
+
 # Make list of illumina samples, if ILLUMINA in config
 ilmn_samples = list()
 ilmn_samples_organisation = None
@@ -80,6 +97,7 @@ if (x := validate_required_key(config, 'ILLUMINA')):
             if sampleid_valid_check(sampleid):
                 if sample_existence_check(raw_dir, sampleid, ilmn_samples_organisation):
                     ilmn_samples.append(sampleid)
+                    sample2folder[sampleid] = sampleid
                 else:
                     raise Exception(f"ERROR: {sampleid} is not found under {raw_dir} with suffix {ilmn_suffix[0]}.")
 
@@ -98,6 +116,7 @@ if (x := validate_required_key(config, 'ILLUMINA')):
                         if sample_existence_check(raw_dir, runid, ilmn_samples_organisation):
                             if sampleid not in ilmn_samples:
                                 ilmn_samples.append(sampleid)
+                                sample2folder[sampleid] = sampleid
                         else:
                             raise Exception(f"ERROR: {runid} not in bulk data folder {raw_dir}")
         else:
@@ -113,6 +132,7 @@ if (x := validate_required_key(config, 'ILLUMINA')):
 
             sample_list = md_df['sample'].to_list()
             folder_list = md_df[col_name].to_list()
+            sample2folder = make_dict(sample_list, folder_list)
 
             # Determine sample organization mode
             if sample_existence_check(raw_dir, folder_list[0], "folder_under_rawdir"):
@@ -122,7 +142,7 @@ if (x := validate_required_key(config, 'ILLUMINA')):
 
             for sampleid in sample_list:
                 if sampleid_valid_check(sampleid):
-                    if sample_existence_check(raw_dir, sampleid, ilmn_samples_organisation) and sampleid not in ilmn_samples:
+                    if sample_existence_check(raw_dir, sample2folder[sampleid], ilmn_samples_organisation) and sampleid not in ilmn_samples:
                         ilmn_samples.append(sampleid)
                     else:
                         raise Exception(f"ERROR: {sampleid} not in raw data folder {raw_dir} with suffix {ilmn_suffix[0]}")
@@ -175,7 +195,7 @@ rule all:
 def get_runs_for_sample(sample):
     runs = [sample]
     if ilmn_samples_organisation == "folder_under_rawdir":
-        sample_dir = '{raw_dir}/{subdir}'.format(raw_dir=raw_dir, subdir=sample)
+        sample_dir = '{raw_dir}/{subdir}'.format(raw_dir=raw_dir, subdir=sample2folder[sample])
         runs = [ f.name.split(ilmn_suffix[0])[0][:-1] for f in os.scandir(sample_dir) if f.is_file() and f.name.endswith(ilmn_suffix[0]) ]
     elif ilmn_runs_df is not None:
         runs = ilmn_runs_df.loc[ilmn_runs_df['sample'] == sample]['run'].to_list()
@@ -186,7 +206,7 @@ def get_runs_for_sample(sample):
 def get_raw_reads_for_sample_run(wildcards):
     prefix = '{raw_dir}/{run}'.format(raw_dir=raw_dir, run=wildcards.run)
     if ilmn_samples_organisation == "folder_under_rawdir":
-        prefix = '{raw_dir}/{subdir}/{run}'.format(raw_dir=raw_dir, subdir=wildcards.sample, run=wildcards.run)
+        prefix = '{raw_dir}/{subdir}/{run}'.format(raw_dir=raw_dir, subdir=sample2folder[wildcards.sample], run=wildcards.run)
     raw_sample_run = {}
     for i, k in enumerate(['read_fw', 'read_rv']):
         raw_sample_run[k] = glob.glob("{}[.-_]{}".format(prefix, ilmn_suffix[i]))[0]
