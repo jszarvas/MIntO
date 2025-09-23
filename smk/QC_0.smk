@@ -36,6 +36,7 @@ FASTP_memory         = validate_required_key(config, 'FASTP_memory')
 FASTP_min_length     = validate_required_key(config, 'FASTP_min_length')
 FASTP_front_mean_qual= validate_required_key(config, 'FASTP_front_mean_qual')
 FASTP_tail_mean_qual = validate_required_key(config, 'FASTP_tail_mean_qual')
+FASTP_trim_polyG     = validate_required_key(config, 'FASTP_trim_polyG')
 
 FASTP_adapters       = validate_required_key(config, 'FASTP_adapters')
 if not os.path.exists(FASTP_adapters):
@@ -87,6 +88,7 @@ def make_dict(keys, values):
 ilmn_samples = list()
 ilmn_samples_organisation = None
 ilmn_runs_df = None
+sample2folder = dict()
 
 if (x := validate_required_key(config, 'ILLUMINA')):
 
@@ -279,6 +281,7 @@ elif adapter_trimming_args:
             mq_5=FASTP_front_mean_qual,
             mq_3=FASTP_tail_mean_qual,
             ml=FASTP_min_length,
+            polyG="--trim_poly_g" if FASTP_trim_polyG else "",
             adapter_args=adapter_trimming_args
         log:
             "{wd}/logs/{omics}/1-trimmed/{sample}_{run}_qc0_trim_quality.log"
@@ -296,6 +299,7 @@ elif adapter_trimming_args:
                 --cut_window_size 4 --cut_front --cut_front_mean_quality {params.mq_5} --cut_tail --cut_tail_mean_quality {params.mq_3} --length_required {params.ml} \
                 {params.adapter_args} \
                 --dont_eval_duplication \
+                {params.polyG} \
                 --thread {threads} --json {output.json} --html {output.html}
             ) >& {log}
             """
@@ -313,6 +317,7 @@ else:
             mq_5=FASTP_front_mean_qual,
             mq_3=FASTP_tail_mean_qual,
             ml=FASTP_min_length,
+            polyG="--trim_poly_g" if FASTP_trim_polyG else "",
             adapter=FASTP_adapters
         log:
             "{wd}/logs/{omics}/1-trimmed/{sample}_{run}_qc0_trim_customadapter.log"
@@ -329,6 +334,7 @@ else:
                 -o {output.pairead1} --out2 {output.pairead2} \
                 --cut_window_size 4 --cut_front --cut_front_mean_quality {params.mq_5} --cut_tail --cut_tail_mean_quality {params.mq_3} --length_required {params.ml} \
                 --dont_eval_duplication \
+                {params.polyG} \
                 --adapter_fasta {params.adapter} \
                 --thread {threads} --json {output.json}
             ) >& {log}
