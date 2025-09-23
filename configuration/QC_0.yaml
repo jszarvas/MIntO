@@ -19,6 +19,7 @@ FASTP_memory: 5
 FASTP_front_mean_qual: 5
 FASTP_tail_mean_qual: 20
 FASTP_min_length: 50
+FASTP_trim_polyG: True
 
 # Calculate length cut-off for QC_2
 perc_remaining_reads: 95
