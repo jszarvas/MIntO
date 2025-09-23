@@ -52,29 +52,43 @@ def sampleid_valid_check(sampleid):
     else:
         return(True)
 
-def sample_existence_check(top_raw_dir, sample_id, organisation_type = "folder"):
-    if organisation_type == "folder":
+def sample_existence_check(top_raw_dir, sample_id, organisation_type = "folder_under_rawdir"):
+    if organisation_type == "folder_under_rawdir":
         location = "{}/{}".format(top_raw_dir, sample_id)
         if os.path.exists(location):
             if glob.glob("{}/{}/*[.-_]{}".format(top_raw_dir, sample_id, ilmn_suffix[0])):
                 return(True)
-    else:
+    elif organisation_type == "file_under_rawdir":
         sample_pattern = "{}/{}[.-_]{}".format(top_raw_dir, sample_id, ilmn_suffix[0])
         if glob.glob(sample_pattern):
             return(True)
+    else:
+        raise Exception(f"ERROR: organization_type={organization_type} is not valid!")
     return(False)
 
 # Make list of illumina samples, if ILLUMINA in config
 ilmn_samples = list()
-ilmn_samples_organisation = "folder"
+ilmn_samples_organisation = None
 ilmn_runs_df = None
+
 if (x := validate_required_key(config, 'ILLUMINA')):
+
+    # listed samples
+    if isinstance(x, list):
+        ilmn_samples_organisation = "folder_under_rawdir"
+        for sampleid in x:
+            if sampleid_valid_check(sampleid):
+                if sample_existence_check(raw_dir, sampleid, ilmn_samples_organisation):
+                    ilmn_samples.append(sampleid)
+                else:
+                    raise Exception(f"ERROR: {sampleid} is not found under {raw_dir} with suffix {ilmn_suffix[0]}.")
+
     # runs-sheet or column_name specified option
-    if isinstance(x, str):
-        ilmn_samples_organisation = "bulk"
+    elif isinstance(x, str):
         if os.path.exists(x) and os.path.isfile(x):
             # extra runs sheet
             print(f"MIntO uses {x} as sample list")
+            ilmn_samples_organisation = "file_under_rawdir"
             col_name = "sample"
             ilmn_runs_df = pandas.read_table(x)
             for sampleid in ilmn_runs_df['sample'].unique():
@@ -90,25 +104,28 @@ if (x := validate_required_key(config, 'ILLUMINA')):
             # column name in metadata sheet
             col_name = x
             md_df = pandas.read_table(metadata)
+
+            # Check 'sample' and col_name columns
+            if 'sample' not in md_df.columns:
+                raise Exception(f"ERROR in {config_path}: 'sample' column does not exist in metadata or runs sheet. Please fix!")
             if not col_name in md_df.columns:
                 raise Exception(f"ERROR in {config_path}: column name specified for ILLUMINA does not exist in metadata or runs sheet. Please fix!")
-            sampleid_list = md_df[col_name].to_list()
-            if sample_existence_check(raw_dir, sampleid_list[0]):
-                ilmn_samples_organisation = "folder"
-            for sampleid in sampleid_list:
+
+            sample_list = md_df['sample'].to_list()
+            folder_list = md_df[col_name].to_list()
+
+            # Determine sample organization mode
+            if sample_existence_check(raw_dir, folder_list[0], "folder_under_rawdir"):
+                ilmn_samples_organisation = "folder_under_rawdir"
+            else:
+                ilmn_samples_organisation = "file_under_rawdir"
+
+            for sampleid in sample_list:
                 if sampleid_valid_check(sampleid):
                     if sample_existence_check(raw_dir, sampleid, ilmn_samples_organisation) and sampleid not in ilmn_samples:
                         ilmn_samples.append(sampleid)
                     else:
                         raise Exception(f"ERROR: {sampleid} not in raw data folder {raw_dir} with suffix {ilmn_suffix[0]}")
-    # listed samples
-    else:
-        for sampleid in x:
-            if sampleid_valid_check(sampleid):
-                if sample_existence_check(raw_dir, sampleid):
-                    ilmn_samples.append(sampleid)
-                else:
-                    raise Exception(f"ERROR: {sampleid} is not found under {raw_dir} with suffix {ilmn_suffix[0]}.")
 
 # trimming options
 adapter_trimming_args = ""
@@ -157,8 +174,8 @@ rule all:
 
 def get_runs_for_sample(sample):
     runs = [sample]
-    if ilmn_samples_organisation == "folder":
-        sample_dir = '{raw_dir}/{sample}'.format(raw_dir=raw_dir, sample=sample)
+    if ilmn_samples_organisation == "folder_under_rawdir":
+        sample_dir = '{raw_dir}/{subdir}'.format(raw_dir=raw_dir, subdir=sample)
         runs = [ f.name.split(ilmn_suffix[0])[0][:-1] for f in os.scandir(sample_dir) if f.is_file() and f.name.endswith(ilmn_suffix[0]) ]
     elif ilmn_runs_df is not None:
         runs = ilmn_runs_df.loc[ilmn_runs_df['sample'] == sample]['run'].to_list()
@@ -168,8 +185,8 @@ def get_runs_for_sample(sample):
 
 def get_raw_reads_for_sample_run(wildcards):
     prefix = '{raw_dir}/{run}'.format(raw_dir=raw_dir, run=wildcards.run)
-    if ilmn_samples_organisation == "folder":
-        prefix = '{raw_dir}/{sample}/{run}'.format(raw_dir=raw_dir, sample=wildcards.sample, run=wildcards.run)
+    if ilmn_samples_organisation == "folder_under_rawdir":
+        prefix = '{raw_dir}/{subdir}/{run}'.format(raw_dir=raw_dir, subdir=wildcards.sample, run=wildcards.run)
     raw_sample_run = {}
     for i, k in enumerate(['read_fw', 'read_rv']):
         raw_sample_run[k] = glob.glob("{}[.-_]{}".format(prefix, ilmn_suffix[i]))[0]
