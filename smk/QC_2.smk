@@ -861,9 +861,28 @@ if omics == 'metaG':
             ) >& {log}
             """
 
-    rule sourmash_compare:
+    rule sourmash_filelist:
+        localrule: True
         input:
             expand("{wd}/{omics}/6-1-smash/{sample}.sig.gz",
+                    wd = working_dir,
+                    omics = omics,
+                    sample = nonredundant_ilmn_samples)
+        output:
+            temp("{wd}/{omics}/6-1-smash/{omics}.sourmash.lst")
+        resources:
+            mem=2
+        threads:
+            1
+        run:
+            with open(output[0], "w") as of:
+                for sigfile in input:
+                    print(sigfile, file = of)
+
+    rule sourmash_compare:
+        input:
+            flist=rules.sourmash_filelist.output,
+            files=expand("{wd}/{omics}/6-1-smash/{sample}.sig.gz",
                     wd = working_dir,
                     omics = omics,
                     sample = nonredundant_ilmn_samples)
@@ -875,7 +894,7 @@ if omics == 'metaG':
         params:
             k=21
         resources:
-            mem=TAXA_memory
+            mem=lambda wildcards, input: max(int(round(len(input.files)*0.2,0)), TAXA_memory)
         threads:
             TAXA_threads
         log:
@@ -885,7 +904,7 @@ if omics == 'metaG':
         shell:
             """
             time (
-                sourmash compare -k {params.k} -p {threads} --csv {output.csv} -o {output.npy} {input}
+                sourmash compare -k {params.k} -p {threads} --csv {output.csv} -o {output.npy} --from-file {input.flist}
             ) >& {log}
             """
 
