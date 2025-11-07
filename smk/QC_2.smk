@@ -1014,7 +1014,6 @@ MAIN_factor: {main_factor}
 #
 METASPADES_qoffset: auto
 METASPADES_threads: 16
-METASPADES_memory: 10
 METASPADES_hybrid_max_k: 99
 METASPADES_illumina_max_k: 99
 
