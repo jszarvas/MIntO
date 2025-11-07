@@ -960,7 +960,7 @@ if omics == 'metaG':
 ##########################################################################################################
 
 def get_qc2_assembly_config_table(wildcards):
-    if wildcards.omics == "metaG":
+    if wildcards.omics == "metaG" and sourmash_M > 0:
         return(expand("{wd}/output/6-1-smash/{omics}.sourmash_clusters.tsv",
                     wd = wildcards.wd,
                     omics = wildcards.omics))
@@ -1195,7 +1195,7 @@ metadata <- read.table('{input.metadata}', sep="\\t", header=TRUE) %>%
 write.table(metadata, file="", col.names=FALSE, row.names=FALSE, quote=FALSE, sep=": ")
 ___EOF___
 
-if [[ "metaG" == "{wildcards.omics}" ]]; then
+if [[ ("metaG" == "{wildcards.omics}") && ({input.table} != {input.metadata}) ]]; then
         R --vanilla --silent --no-echo >> {output} <<___EOF___
 library(dplyr)
 metadata <- read.table('{input.table}', sep="\\t", header=TRUE) %>%
