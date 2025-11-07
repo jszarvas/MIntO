@@ -14,6 +14,7 @@ import os.path
 
 GLOBAL_CONFIG_KEYTYPES = {
     'abundance_normalization' : str,
+    'ALIGNER_type' : str,
     'alignment_identity' : int,
     'ANNOTATION_file' : 'file',
     'ANNOTATION_ids' : list,
