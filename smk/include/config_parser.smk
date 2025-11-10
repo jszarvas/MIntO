@@ -48,7 +48,6 @@ GLOBAL_CONFIG_KEYTYPES = {
     'FASTP_threads' : int,
     'GTDB_TAXONOMY_VERSION' : str,
     'HYBRID' : dict,
-    'HYBRID_memory' : int,
     'ILLUMINA' : [list, 'file', str],
     'ILLUMINA_suffix' : list,
     'MAG_omics' : str,

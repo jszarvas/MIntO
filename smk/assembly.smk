@@ -92,7 +92,6 @@ check_number_is_odd('METASPADES_illumina_max_k', METASPADES_illumina_max_k)
 METASPADES_hybrid_max_k = validate_optional_key(config, 'METASPADES_hybrid_max_k')
 if METASPADES_hybrid_max_k is not None:
     check_number_is_odd('METASPADES_hybrid_max_k', METASPADES_hybrid_max_k)
-HYBRID_memory  = validate_required_key(config, 'HYBRID_memory')
 
 # Figure out SPAdes build
 # and verify kmer max
@@ -355,7 +354,7 @@ rule hybrid_assembly_metaspades:
         asm_mode = "--meta",
         kmer_option = lambda wildcards: get_metaspades_kmer_option(int(wildcards.maxk)),
     resources:
-        mem = lambda wildcards, attempt: attempt*HYBRID_memory
+        mem = lambda wildcards, input, attempt: int(26 + os.path.getsize(input.fwd)*8.8e-9+ 20*(attempt-1))
     log:
         "{wd}/logs/{omics}/7-assembly/{nanopore}-{illumina}/k21-{maxk}/{nanopore}-{illumina}_metaspades.log"
     threads:
