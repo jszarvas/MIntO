@@ -1016,6 +1016,7 @@ METASPADES_qoffset: auto
 METASPADES_threads: 16
 METASPADES_hybrid_max_k: 99
 METASPADES_illumina_max_k: 99
+HYBRID_memory: 50
 
 # MEGAHIT settings
 #

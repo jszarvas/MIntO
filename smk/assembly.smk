@@ -85,7 +85,6 @@ METASPADES_qoffset = validate_required_key(config, 'METASPADES_qoffset')
 check_allowed_values('METASPADES_qoffset', METASPADES_qoffset, ('auto', '33', '64'))
 
 METASPADES_threads = validate_required_key(config, 'METASPADES_threads')
-METASPADES_memory  = validate_required_key(config, 'METASPADES_memory')
 
 METASPADES_illumina_max_k = validate_required_key(config, 'METASPADES_illumina_max_k')
 check_number_is_odd('METASPADES_illumina_max_k', METASPADES_illumina_max_k)
@@ -93,6 +92,7 @@ check_number_is_odd('METASPADES_illumina_max_k', METASPADES_illumina_max_k)
 METASPADES_hybrid_max_k = validate_optional_key(config, 'METASPADES_hybrid_max_k')
 if METASPADES_hybrid_max_k is not None:
     check_number_is_odd('METASPADES_hybrid_max_k', METASPADES_hybrid_max_k)
+HYBRID_memory  = validate_required_key(config, 'HYBRID_memory')
 
 # Figure out SPAdes build
 # and verify kmer max
@@ -355,7 +355,7 @@ rule hybrid_assembly_metaspades:
         asm_mode = "--meta",
         kmer_option = lambda wildcards: get_metaspades_kmer_option(int(wildcards.maxk)),
     resources:
-        mem = lambda wildcards, attempt: attempt*METASPADES_memory
+        mem = lambda wildcards, attempt: attempt*HYBRID_memory
     log:
         "{wd}/logs/{omics}/7-assembly/{nanopore}-{illumina}/k21-{maxk}/{nanopore}-{illumina}_metaspades.log"
     threads:
