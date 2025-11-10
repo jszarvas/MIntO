@@ -554,7 +554,8 @@ rule map_strobealign:
         else
             input_files="{input.fwd} {input.rev}"
         fi
-        time (strobealign -t {threads} --use-index --aemb {input.fasta} $input_files > abundances.tsv
+        # fixed mean read length
+        time (strobealign -t {threads} -r 150 --use-index --aemb {input.fasta} $input_files > abundances.tsv
               gzip -2 abundances.tsv
               rsync -a abundances.tsv.gz {output.depth}
         ) >& {log}
